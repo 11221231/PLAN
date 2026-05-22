@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#2d5a27" />
+  <title>여행 세부 일정</title>
+  <script>window.KAKAO_MAP_APP_KEY = window.KAKAO_MAP_APP_KEY || "6ec33b3d1f27658259eccc9a807e1480";</script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: { colors: { forest: { 50:'#f4f7f6', 100:'#e7efe8', 600:'#2d5a27', 700:'#1f411c' } }, boxShadow: { soft:'0 12px 40px rgba(17,24,39,0.08)' } } } };
+  </script>
+  <style>
+    :root { color-scheme: light; }
+    body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: radial-gradient(circle at top, rgba(255,255,255,.72), transparent 35%), linear-gradient(180deg, #eff5ef 0%, #f7faf8 45%, #eef4ef 100%); color: #1f2937; }
+    .fade-up { animation: fadeUp .35s ease-out; }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+    .chip-active { box-shadow: inset 0 0 0 2px rgba(45,90,39,.22); }
+    .map-empty { min-height: 350px; }
+    @media (min-width: 768px) { .map-empty { min-height: 450px; } }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <script>
+    const fixedPlaces = {
+      start: { name: '서울 출발', type: 'move', lat: 37.6542, lng: 127.0568 },
+      lunch1: { name: '통나무집사람들', type: 'food', desc: '마늘갈비 정식, 게국지', lat: 36.8524, lng: 126.2307 },
+      sinduri: { name: '신두리해안사구', type: 'view', desc: '국내 최대 규모의 모래언덕 생태', lat: 36.8407, lng: 126.1951 },
+      muirim: { name: '무이림(숙소)', type: 'sleep', desc: '프라이빗 숙소, 15:00 체크인', lat: 36.8202, lng: 126.1368 },
+      cheollipo: { name: '천리포수목원', type: 'view', desc: '바다와 숲이 어우러진 아름다운 정원', lat: 36.7979, lng: 126.1517 },
+      end: { name: '서울 도착', type: 'move', lat: 37.6542, lng: 127.0568 },
+    };
+
+    const options = {
+      d1Dinner: {
+        takeout: [
+          { id: 'manpo', name: '만리포만포치킨', desc: '바삭한 옛날식 후라이드 픽업', lat: 36.7845, lng: 126.1382 },
+          { id: 'seobu', name: '태안 서부시장', desc: '닭강정, 튀김 등 주전부리 픽업', lat: 36.7533, lng: 126.2974 },
+        ],
+        dinein: [
+          { id: 'cheong', name: '청어람', desc: '모항항 근처 보글보글 해물탕', lat: 36.7725, lng: 126.1558 },
+          { id: 'neoul', name: '너울횟집', desc: '만리포 해변 불에 굽는 조개구이', lat: 36.7865, lng: 126.1378 },
+          { id: 'gabgo', name: '선창횟집', desc: '모항항 매콤달콤 갑오징어 볶음', lat: 36.7730, lng: 126.1565 },
+        ],
+      },
+      d2Lunch: [
+        { id: 'hoho', name: '호호아줌마', desc: '천리포 근처 보쌈/제육 정식', lat: 36.7930, lng: 126.1525 },
+        { id: 'dol', name: '만리포 돌짜장', desc: '지글지글 뜨거운 해물 돌짜장', lat: 36.7850, lng: 126.1395 },
+        { id: 'misik', name: '미식가', desc: '500도 화덕 겉바속촉 생선구이', lat: 36.8510, lng: 126.2315 },
+      ],
+      d2Dinner: [
+        { id: 'saeam', name: '새암물', desc: '태안 시내 버섯 불고기, 차돌 쭈꾸미', lat: 36.7490, lng: 126.3020 },
+        { id: 'urang', name: '당진 우렁이박사', desc: '당진IC 전 우렁쌈장과 제육볶음', lat: 36.8795, lng: 126.6800 },
+        { id: 'gabo', name: '가보 고기짬뽕', desc: '태안 시내 불맛 가득 묵직한 짬뽕', lat: 36.7510, lng: 126.2990 },
+        { id: 'haemi', name: '해미읍성 먹거리', desc: '서산 해미읍성 호떡, 곱창 등', lat: 36.7135, lng: 126.5450 },
+      ],
+    };
+
+    const state = {
+      view: 'selection',
+      selections: { d1DinnerType: 'takeout', d1Dinner: '', d2Lunch: '', d2Dinner: '' },
+      planItems: [],
+      editingCategory: null,
+    };
+
+    const app = document.getElementById('app');
+
+    function icon(name) {
+      const icons = {
+        pencil: '<path d="M12 20h9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+        trash: '<path d="M3 6h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m-8 0 1 14a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1l1-14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 11v6M14 11v6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+        map: '<path d="M9 18 3 21V6l6-3 6 3 6-3v15l-6 3-6-3Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 3v15M15 6v15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+        coffee: '<path d="M4 8h14v4a6 6 0 0 1-6 6H8a4 4 0 0 1-4-4V8Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M18 10h2a2 2 0 0 1 0 4h-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M6 3v3M10 3v3M14 3v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+        moon: '<path d="M21 14.5A8.5 8.5 0 1 1 9.5 3a7 7 0 0 0 11.5 11.5Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>'
+      };
+      return `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">${icons[name] || ''}</svg>`;
+    }
+
+    function handleSelect(category, id) { state.selections[category] = id; render(); }
+    function handleTypeChange(type) { state.selections.d1DinnerType = type; state.selections.d1Dinner = ''; render(); }
+    function removeItem(id) { state.planItems = state.planItems.filter(item => item.id !== id); render(); }
+    function openEditModal(category) { state.editingCategory = category; render(); }
+
+    function applyEdit(newId, type = null) {
+      const data = state.editingCategory === 'd1Dinner'
+        ? options.d1Dinner[type].find(opt => opt.id === newId)
+        : options[state.editingCategory].find(opt => opt.id === newId);
+
+      if (state.editingCategory === 'd1Dinner') {
+        state.selections.d1DinnerType = type;
+        state.selections.d1Dinner = newId;
+      } else {
+        state.selections[state.editingCategory] = newId;
+      }
+
+      state.planItems = state.planItems.map(item => item.category === state.editingCategory ? { ...item, title: data.name, desc: data.desc, lat: data.lat, lng: data.lng } : item);
+      state.editingCategory = null;
+      render();
+    }
+
+    function generatePlan() {
+      if (!state.selections.d1Dinner || !state.selections.d2Lunch || !state.selections.d2Dinner) {
+        alert('모든 옵션을 선택해주세요!');
+        return;
+      }
+
+      const d1 = options.d1Dinner[state.selections.d1DinnerType].find(opt => opt.id === state.selections.d1Dinner);
+      const d2L = options.d2Lunch.find(opt => opt.id === state.selections.d2Lunch);
+      const d2D = options.d2Dinner.find(opt => opt.id === state.selections.d2Dinner);
+
+      const items = [
+        { id: 'start', day: 1, time: '08:00', ...fixedPlaces.start, deletable: false, editable: false },
+        { id: 'lunch1', day: 1, time: '10:30', ...fixedPlaces.lunch1, deletable: false, editable: false },
+        { id: 'sinduri', day: 1, time: '12:00', ...fixedPlaces.sinduri, deletable: true, editable: false },
+      ];
+
+      if (state.selections.d1DinnerType === 'takeout') {
+        items.push({ id: 'd1Din', category: 'd1Dinner', day: 1, time: '14:00', type: 'food', title: d1.name, desc: d1.desc, lat: d1.lat, lng: d1.lng, deletable: true, editable: true });
+        items.push({ id: 'muirim', day: 1, time: '15:00', ...fixedPlaces.muirim, deletable: false, editable: false });
+      } else {
+        items.push({ id: 'muirim', day: 1, time: '15:00', ...fixedPlaces.muirim, desc: '체크인 후 휴식 (저녁 외식 준비)', deletable: false, editable: false });
+        items.push({ id: 'd1Din', category: 'd1Dinner', day: 1, time: '17:30', type: 'food', title: d1.name, desc: d1.desc, lat: d1.lat, lng: d1.lng, deletable: true, editable: true });
+      }
+
+      items.push({ id: 'checkout', day: 2, time: '11:00', type: 'sleep', title: '무이림 체크아웃', desc: '아침 식사 후 출발', lat: fixedPlaces.muirim.lat, lng: fixedPlaces.muirim.lng, deletable: false, editable: false });
+      items.push({ id: 'd2Lun', category: 'd2Lunch', day: 2, time: '11:30', type: 'food', title: d2L.name, desc: d2L.desc, lat: d2L.lat, lng: d2L.lng, deletable: true, editable: true });
+      items.push({ id: 'cheollipo', day: 2, time: '13:00', ...fixedPlaces.cheollipo, deletable: true, editable: false });
+      items.push({ id: 'd2Din', category: 'd2Dinner', day: 2, time: '16:00', type: 'food', title: d2D.name, desc: d2D.desc, lat: d2D.lat, lng: d2D.lng, deletable: true, editable: true });
+      items.push({ id: 'end', day: 2, time: '19:00', ...fixedPlaces.end, deletable: false, editable: false });
+
+      state.planItems = items;
+      state.view = 'result';
+      window.scrollTo(0, 0);
+      render();
+    }
+
+    function card(item, selected, selectedClass, category) {
+      return `<div data-category="${category}" data-select="${item.id}" class="p-4 rounded-2xl border-2 cursor-pointer transition ${selected ? selectedClass : 'border-stone-100 bg-white hover:border-stone-300'}"><div class="font-bold text-stone-800">${item.name}</div><div class="text-xs text-stone-500 mt-1">${item.desc}</div></div>`;
+    }
+
+    function selectionView() {
+      return `
+        <div class="min-h-screen px-4 py-8 md:py-10 text-stone-800">
+          <div class="max-w-3xl mx-auto space-y-6 md:space-y-8">
+            <header class="text-center pb-2">
+              <div class="inline-flex items-center gap-2 rounded-full bg-white/80 border border-white px-4 py-2 shadow-soft text-sm font-semibold text-forest-600">${icon('map')} 26.05.23 태안 여행 일정</div>
+              <h1 class="mt-4 text-3xl md:text-4xl font-extrabold tracking-tight text-forest-700">여행 세부 일정</h1>
+            </header>
+
+            <div class="bg-emerald-50 text-emerald-800 p-4 rounded-2xl text-sm font-bold border border-emerald-100 text-center shadow-soft">Day 1 점심 식사는 [통나무집 사람들] </div>
+
+            <section class="bg-white p-5 md:p-6 rounded-3xl shadow-soft border border-stone-200">
+              <h2 class="text-xl font-bold mb-4 flex items-center"><span class="bg-orange-100 text-orange-600 px-3 py-1 rounded-full text-sm mr-2">Day 1</span> 저녁 선택</h2>
+              <div class="flex bg-stone-100 p-1 rounded-2xl mb-5">
+                <button data-type="takeout" class="flex-1 py-3 text-sm font-bold rounded-xl ${state.selections.d1DinnerType === 'takeout' ? 'bg-white shadow text-orange-600 chip-active' : 'text-stone-500'}">포장/픽업</button>
+                <button data-type="dinein" class="flex-1 py-3 text-sm font-bold rounded-xl ${state.selections.d1DinnerType === 'dinein' ? 'bg-white shadow text-orange-600 chip-active' : 'text-stone-500'}">매장식사</button>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">${options.d1Dinner[state.selections.d1DinnerType].map(opt => card(opt, state.selections.d1Dinner === opt.id, 'border-orange-500 bg-orange-50', 'd1Dinner')).join('')}</div>
+            </section>
+
+            <section class="bg-white p-5 md:p-6 rounded-3xl shadow-soft border border-stone-200">
+              <h2 class="text-xl font-bold mb-4 flex items-center"><span class="bg-emerald-100 text-emerald-600 px-3 py-1 rounded-full text-sm mr-2">Day 2</span> 점심 선택</h2>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">${options.d2Lunch.map(opt => card(opt, state.selections.d2Lunch === opt.id, 'border-emerald-500 bg-emerald-50', 'd2Lunch')).join('')}</div>
+            </section>
+
+            <section class="bg-white p-5 md:p-6 rounded-3xl shadow-soft border border-stone-200">
+              <h2 class="text-xl font-bold mb-4 flex items-center"><span class="bg-blue-100 text-blue-600 px-3 py-1 rounded-full text-sm mr-2">Day 2</span> 저녁 선택</h2>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">${options.d2Dinner.map(opt => `<div data-category="d2Dinner" data-select="${opt.id}" class="p-4 rounded-2xl border-2 cursor-pointer transition ${state.selections.d2Dinner === opt.id ? 'border-blue-500 bg-blue-50' : 'border-stone-100 bg-white hover:border-stone-300'}"><span class="font-bold align-middle">${opt.name}</span><div class="text-xs text-stone-500 mt-1.5">${opt.desc}</div></div>`).join('')}</div>
+            </section>
+
+            <button id="generate" class="w-full bg-forest-600 hover:bg-forest-700 text-white font-bold py-4 rounded-full text-lg transition active:scale-[0.98] shadow-soft">일정 생성하기</button>
+          </div>
+        </div>`;
+    }
+
+    function editModal() {
+      const list = state.editingCategory === 'd1Dinner'
+        ? `<div class="text-xs font-bold text-orange-500 mt-2 mb-1">포장/픽업 메뉴</div>${options.d1Dinner.takeout.map(opt => `<button data-apply="${opt.id}" data-type="takeout" class="w-full text-left p-3 rounded-2xl border border-stone-200 hover:border-orange-500 hover:bg-orange-50 transition"><div class="font-bold text-stone-800">${opt.name}</div><div class="text-xs text-stone-500 mt-0.5">${opt.desc}</div></button>`).join('')}<div class="text-xs font-bold text-orange-500 mt-4 mb-1">매장식사 메뉴</div>${options.d1Dinner.dinein.map(opt => `<button data-apply="${opt.id}" data-type="dinein" class="w-full text-left p-3 rounded-2xl border border-stone-200 hover:border-orange-500 hover:bg-orange-50 transition"><div class="font-bold text-stone-800">${opt.name}</div><div class="text-xs text-stone-500 mt-0.5">${opt.desc}</div></button>`).join('')}`
+        : options[state.editingCategory].map(opt => `<button data-apply="${opt.id}" class="w-full text-left p-3 rounded-2xl border border-stone-200 hover:border-emerald-500 hover:bg-emerald-50 transition"><div class="font-bold text-stone-800">${opt.name}</div><div class="text-xs text-stone-500 mt-0.5">${opt.desc}</div></button>`).join('');
+
+      return `<div class="fixed inset-0 bg-stone-900/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm"><div class="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl fade-up"><h3 class="text-xl font-bold mb-4 text-stone-800">여행 일정 수정</h3><div class="space-y-2 max-h-[60vh] overflow-y-auto pr-1">${list}</div><button id="closeEdit" class="mt-6 w-full py-3.5 bg-stone-100 text-stone-600 font-bold rounded-2xl hover:bg-stone-200 transition">닫기</button></div></div>`;
+    }
+
+    function renderMap(items) {
+      if (!window.kakao || !window.kakao.maps) return;
+      const container = document.getElementById('map');
+      if (!container) return;
+      if (!window.__kakaoMap) window.__kakaoMap = new window.kakao.maps.Map(container, { center: new window.kakao.maps.LatLng(36.8202, 126.1368), level: 9 });
+      const map = window.__kakaoMap;
+      window.__kakaoMarkers = window.__kakaoMarkers || [];
+      window.__kakaoMarkers.forEach(m => m.setMap(null));
+      window.__kakaoMarkers = [];
+      if (window.__kakaoPolyline) window.__kakaoPolyline.setMap(null);
+
+      const bounds = new window.kakao.maps.LatLngBounds();
+      const linePath = [];
+
+      items.forEach((item, index) => {
+        if (!item.lat || !item.lng) return;
+        const position = new window.kakao.maps.LatLng(item.lat, item.lng);
+        linePath.push(position);
+        bounds.extend(position);
+
+        let bgColor = '#6b7280';
+        if (item.type === 'food') bgColor = '#f97316';
+        if (item.type === 'view') bgColor = '#10b981';
+        if (item.type === 'sleep') bgColor = '#6366f1';
+
+        const content = `<div style="background-color:${bgColor};color:white;padding:5px 10px;border-radius:20px;font-size:12px;font-weight:700;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.2);transform:translateY(-15px);white-space:nowrap;"><span style="background:rgba(255,255,255,0.2);border-radius:50%;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;margin-right:4px;font-size:10px;">${index + 1}</span>${item.title || item.name}</div>`;
+        const overlay = new window.kakao.maps.CustomOverlay({ position, content, yAnchor: 1 });
+        overlay.setMap(map);
+        window.__kakaoMarkers.push(overlay);
+      });
+
+      if (linePath.length > 1) {
+        window.__kakaoPolyline = new window.kakao.maps.Polyline({ path: linePath, strokeWeight: 4, strokeColor: '#f97316', strokeOpacity: 0.75, strokeStyle: 'shortdash' });
+        window.__kakaoPolyline.setMap(map);
+      }
+      if (linePath.length > 0) map.setBounds(bounds);
+    }
+
+    async function ensureKakaoMaps() {
+      if (!window.KAKAO_MAP_APP_KEY) return false;
+      if (window.kakao && window.kakao.maps) return true;
+      if (!window.__kakaoSdkPromise) {
+        window.__kakaoSdkPromise = new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.async = true;
+          script.src = 'https://dapi.kakao.com/v2/maps/sdk.js?autoload=false&libraries=services&appkey=' + encodeURIComponent(window.KAKAO_MAP_APP_KEY);
+          script.onload = () => { if (!window.kakao || !window.kakao.maps) reject(new Error('Kakao Maps SDK load failed')); else window.kakao.maps.load(() => resolve(window.kakao)); };
+          script.onerror = () => reject(new Error('Kakao Maps SDK load failed'));
+          document.head.appendChild(script);
+        });
+      }
+      try { await window.__kakaoSdkPromise; return true; } catch (e) { console.error(e); return false; }
+    }
+
+    function resultView() {
+      const day1Items = state.planItems.filter(i => i.day === 1);
+      const day2Items = state.planItems.filter(i => i.day === 2);
+      const mapSection = window.KAKAO_MAP_APP_KEY
+        ? '<div id="map" class="w-full bg-white rounded-3xl shadow-soft border border-stone-200 overflow-hidden map-empty"></div>'
+        : '<div class="w-full bg-white rounded-3xl shadow-soft border border-stone-200 overflow-hidden map-empty flex flex-col items-center justify-center text-stone-500 px-6 text-center"><div class="text-3xl mb-3">📍</div><p class="font-semibold">window.KAKAO_MAP_APP_KEY를 설정하면 카카오맵이 표시됩니다.</p><p class="text-sm mt-2">GitHub Pages 배포 전에 JavaScript 키로 바꿔주세요.</p></div>';
+
+      return `
+        <div class="min-h-screen px-4 py-8 md:py-10 text-stone-800">
+          <div class="max-w-3xl mx-auto fade-up">
+            <div class="flex justify-between items-end mb-6 px-2 gap-4">
+              <div>
+                <h1 class="text-2xl md:text-3xl font-extrabold tracking-tight text-forest-700">태안 여행 플랜</h1>
+                <p class="text-sm text-stone-500 mt-1">항목은 개별 수정하거나 삭제할 수 있고, 지도도 즉시 다시 그려집니다.</p>
+              </div>
+              <button id="back" class="text-sm text-blue-600 font-bold hover:underline bg-blue-50 px-3 py-2 rounded-xl shrink-0">다시 선택</button>
+            </div>
+
+            <div class="mb-8">${mapSection}</div>
+
+            <div class="space-y-8">
+              <div class="bg-white rounded-3xl p-5 md:p-8 shadow-soft border-t-4 border-t-orange-500 border-x border-b border-stone-200">
+                <h2 class="text-xl font-bold text-orange-600 mb-6 flex items-center">${icon('moon')} <span class="ml-2">Day 1</span></h2>
+                <div class="relative border-l-2 border-stone-100 ml-3 md:ml-4 space-y-8">
+                  ${day1Items.map((item, index) => `<div class="relative pl-6 group"><div class="absolute w-6 h-6 bg-orange-500 rounded-full -left-[13px] top-0.5 shadow-[0_0_0_3px_white] flex items-center justify-center text-[10px] font-bold text-white">${index + 1}</div><div class="flex justify-between items-start mb-1 gap-3"><span class="text-sm font-bold text-stone-400">${item.time}</span><div class="flex space-x-2 ${item.editable || item.deletable ? '' : 'opacity-0'} md:opacity-0 group-hover:opacity-100 transition-opacity">${item.editable ? `<button data-edit="${item.category}" class="text-xs text-blue-500 font-bold flex items-center bg-blue-50 px-2 py-1 rounded-lg">${icon('pencil')}<span class="ml-1">수정</span></button>` : ''}${item.deletable ? `<button data-remove="${item.id}" class="text-xs text-red-500 font-bold flex items-center bg-red-50 px-2 py-1 rounded-lg">${icon('trash')}<span class="ml-1">삭제</span></button>` : ''}</div></div><h3 class="font-bold text-lg text-stone-800 leading-snug">${item.title || item.name}</h3><p class="text-sm text-stone-500 mt-1">${item.desc || ''}</p></div>`).join('')}
+                </div>
+              </div>
+
+              <div class="bg-white rounded-3xl p-5 md:p-8 shadow-soft border-t-4 border-t-emerald-500 border-x border-b border-stone-200">
+                <h2 class="text-xl font-bold text-emerald-600 mb-6 flex items-center">${icon('coffee')} <span class="ml-2">Day 2</span></h2>
+                <div class="relative border-l-2 border-stone-100 ml-3 md:ml-4 space-y-8">
+                  ${day2Items.map((item, index) => `<div class="relative pl-6 group"><div class="absolute w-6 h-6 bg-emerald-500 rounded-full -left-[13px] top-0.5 shadow-[0_0_0_3px_white] flex items-center justify-center text-[10px] font-bold text-white">${day1Items.length + index + 1}</div><div class="flex justify-between items-start mb-1 gap-3"><span class="text-sm font-bold text-stone-400">${item.time}</span><div class="flex space-x-2 ${item.editable || item.deletable ? '' : 'opacity-0'} md:opacity-0 group-hover:opacity-100 transition-opacity">${item.editable ? `<button data-edit="${item.category}" class="text-xs text-blue-500 font-bold flex items-center bg-blue-50 px-2 py-1 rounded-lg">${icon('pencil')}<span class="ml-1">수정</span></button>` : ''}${item.deletable ? `<button data-remove="${item.id}" class="text-xs text-red-500 font-bold flex items-center bg-red-50 px-2 py-1 rounded-lg">${icon('trash')}<span class="ml-1">삭제</span></button>` : ''}</div></div><h3 class="font-bold text-lg text-stone-800 leading-snug">${item.title || item.name}</h3><p class="text-sm text-stone-500 mt-1">${item.desc || ''}</p></div>`).join('')}
+                </div>
+              </div>
+            </div>
+          </div>
+          ${state.editingCategory ? editModal() : ''}
+        </div>`;
+    }
+
+    function bindEvents() {
+      document.querySelectorAll('[data-type]').forEach(btn => btn.addEventListener('click', () => handleTypeChange(btn.dataset.type)));
+      if (state.view === 'selection') {
+        document.querySelectorAll('section [data-select]').forEach(card => card.addEventListener('click', () => handleSelect(card.dataset.category, card.dataset.select)));
+        document.getElementById('generate')?.addEventListener('click', generatePlan);
+      }
+      document.getElementById('back')?.addEventListener('click', () => { state.view = 'selection'; state.planItems = []; state.editingCategory = null; render(); });
+      document.querySelectorAll('[data-remove]').forEach(btn => btn.addEventListener('click', () => removeItem(btn.dataset.remove)));
+      document.querySelectorAll('[data-edit]').forEach(btn => btn.addEventListener('click', () => openEditModal(btn.dataset.edit)));
+      document.querySelectorAll('[data-apply]').forEach(btn => btn.addEventListener('click', () => applyEdit(btn.dataset.apply, btn.dataset.type || null)));
+      document.getElementById('closeEdit')?.addEventListener('click', () => { state.editingCategory = null; render(); });
+    }
+
+    async function render() {
+      app.innerHTML = state.view === 'selection' ? selectionView() : resultView();
+      bindEvents();
+      if (state.view === 'result' && await ensureKakaoMaps()) renderMap(state.planItems);
+    }
+
+    render();
+  </script>
+</body>
+</html>
