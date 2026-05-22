@@ -196,6 +196,38 @@
       return `<div class="fixed inset-0 bg-stone-900/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm"><div class="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl fade-up"><h3 class="text-xl font-bold mb-4 text-stone-800">여행 일정 수정</h3><div class="space-y-2 max-h-[60vh] overflow-y-auto pr-1">${list}</div><button id="closeEdit" class="mt-6 w-full py-3.5 bg-stone-100 text-stone-600 font-bold rounded-2xl hover:bg-stone-200 transition">닫기</button></div></div>`;
     }
 
+    // 검색 결과로 좌표 보정
+    async function resolvePlaceCoords(items) {
+      if (!window.kakao || !window.kakao.maps || !window.kakao.maps.services) return items;
+      const placesService = new window.kakao.maps.services.Places();
+      const resolved = [];
+      for (const item of items) {
+        const query = (item.title || item.name || '').trim();
+        if (!query) { resolved.push(item); continue; }
+
+        // 검색 가능한 항목만 처리 (음식/관광/숙박 등)
+        try {
+          const first = await new Promise((resolve) => {
+            placesService.keywordSearch(query, (data, status) => {
+              if (status === window.kakao.maps.services.Status.OK && data && data.length) resolve(data[0]);
+              else resolve(null);
+            });
+          });
+
+          if (first && first.x && first.y) {
+            // 카카오 결과의 x:lng, y:lat (문자열)
+            resolved.push({ ...item, lat: parseFloat(first.y), lng: parseFloat(first.x), resolvedName: first.place_name });
+          } else {
+            resolved.push(item);
+          }
+        } catch (e) {
+          console.error('place search error', query, e);
+          resolved.push(item);
+        }
+      }
+      return resolved;
+    }
+
     function renderMap(items) {
       if (!window.kakao || !window.kakao.maps) return;
       const container = document.getElementById('map');
@@ -221,7 +253,8 @@
         if (item.type === 'view') bgColor = '#10b981';
         if (item.type === 'sleep') bgColor = '#6366f1';
 
-        const content = `<div style="background-color:${bgColor};color:white;padding:5px 10px;border-radius:20px;font-size:12px;font-weight:700;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.2);transform:translateY(-15px);white-space:nowrap;"><span style="background:rgba(255,255,255,0.2);border-radius:50%;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;margin-right:4px;font-size:10px;">${index + 1}</span>${item.title || item.name}</div>`;
+        const label = item.resolvedName || item.title || item.name;
+        const content = `<div style="background-color:${bgColor};color:white;padding:5px 10px;border-radius:20px;font-size:12px;font-weight:700;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.2);transform:translateY(-15px);white-space:nowrap;"><span style="background:rgba(255,255,255,0.2);border-radius:50%;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;margin-right:4px;font-size:10px;">${index + 1}</span>${label}</div>`;
         const overlay = new window.kakao.maps.CustomOverlay({ position, content, yAnchor: 1 });
         overlay.setMap(map);
         window.__kakaoMarkers.push(overlay);
@@ -346,7 +379,10 @@
     async function render() {
       app.innerHTML = state.view === 'selection' ? selectionView() : resultView();
       bindEvents();
-      if (state.view === 'result' && await ensureKakaoMaps()) renderMap(state.planItems);
+      if (state.view === 'result' && await ensureKakaoMaps()) {
+        const resolvedItems = await resolvePlaceCoords(state.planItems);
+        renderMap(resolvedItems);
+      }
     }
 
     render();
