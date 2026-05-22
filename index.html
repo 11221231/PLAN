@@ -204,7 +204,12 @@
       for (const item of items) {
         // checkout(무이림 체크아웃)은 항상 fixedPlaces.muirim 위치 사용
         if (item.id === 'checkout') {
-          resolved.push({ ...item, lat: fixedPlaces.muirim.lat, lng: fixedPlaces.muirim.lng, resolvedName: fixedPlaces.muirim.name });
+          resolved.push({
+            ...item,
+            lat: fixedPlaces.muirim.lat,
+            lng: fixedPlaces.muirim.lng,
+            resolvedName: fixedPlaces.muirim.name
+          });
           continue;
         }
 
