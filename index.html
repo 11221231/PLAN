@@ -18,6 +18,9 @@
   </script>
 
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- html2pdf (html2canvas + jsPDF 포함) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.9.2/html2pdf.bundle.min.js"></script>
+
   <script>
     tailwind.config = { theme: { extend: { colors: { forest: { 50:'#f4f7f6', 100:'#e7efe8', 600:'#2d5a27', 700:'#1f411c' } }, boxShadow: { soft:'0 12px 40px rgba(17,24,39,0.08)' } } } };
   </script>
@@ -31,6 +34,17 @@
     @media (min-width: 768px) { .map-empty { min-height: 450px; } }
     .map-error { border: 1px solid #fee2e2; background: #fff7f7; color:#7f1d1d; padding:16px; border-radius:14px; }
     .map-error small { display:block; color:#92400e; margin-top:8px; }
+    /* PDF 전용 스타일 템플릿 */
+    .pdf-wrap { font-family: "Noto Sans KR", sans-serif; padding:20px; color:#111827; }
+    .pdf-header { text-align:center; margin-bottom:18px; }
+    .pdf-title { font-size:20px; font-weight:800; color:#1f5a27; margin-bottom:6px; }
+    .pdf-sub { font-size:12px; color:#4b5563; }
+    .pdf-day { margin-top:12px; margin-bottom:8px; font-weight:700; color:#0f766e; }
+    .pdf-item { margin-left:8px; margin-bottom:6px; }
+    .pdf-time { color:#6b7280; width:56px; display:inline-block; }
+    .pdf-name { font-weight:700; }
+    .pdf-desc { display:block; color:#4b5563; margin-top:4px; margin-left:64px; font-size:13px; }
+    .pdf-map { width:100%; max-height:300px; object-fit:cover; border-radius:8px; margin-top:12px; }
   </style>
 </head>
 <body>
@@ -204,12 +218,7 @@
       for (const item of items) {
         // checkout(무이림 체크아웃)은 항상 fixedPlaces.muirim 위치 사용
         if (item.id === 'checkout') {
-          resolved.push({
-            ...item,
-            lat: fixedPlaces.muirim.lat,
-            lng: fixedPlaces.muirim.lng,
-            resolvedName: fixedPlaces.muirim.name
-          });
+          resolved.push({ ...item, lat: fixedPlaces.muirim.lat, lng: fixedPlaces.muirim.lng, resolvedName: fixedPlaces.muirim.name });
           continue;
         }
 
@@ -276,6 +285,69 @@
         window.__kakaoPolyline.setMap(map);
       }
       if (linePath.length > 0) map.setBounds(bounds);
+    }
+
+    // PDF 생성 함수
+    async function exportToPDF() {
+      const filename = '여행_일정.pdf';
+      const printable = document.createElement('div');
+      printable.className = 'pdf-wrap';
+      printable.innerHTML = `<div class="pdf-header"><div class="pdf-title">여행 세부 일정</div><div class="pdf-sub">${new Date().toLocaleString()}</div></div>`;
+
+      // 시도: 지도 캡처 (html2canvas 사용, CORS로 실패할 수 있음)
+      let mapDataUrl = null;
+      const mapEl = document.getElementById('map');
+      try {
+        if (mapEl) {
+          // html2canvas는 html2pdf.bundle에 포함되어 있음
+          // useCORS:true, scale:2로 품질 향상 시도
+          mapDataUrl = await html2canvas(mapEl, { useCORS: true, scale: 2 }).then(canvas => canvas.toDataURL('image/jpeg', 0.92));
+        }
+      } catch (e) {
+        console.warn('Map capture failed (CORS or tainted). PDF will omit map image.', e);
+        mapDataUrl = null;
+      }
+
+      // 플랜 항목을 날짜별로 출력
+      const days = {};
+      for (const it of state.planItems) {
+        days[it.day] = days[it.day] || [];
+        days[it.day].push(it);
+      }
+
+      for (const day of Object.keys(days).sort()) {
+        printable.innerHTML += `<div class="pdf-day">Day ${day}</div>`;
+        days[day].forEach(item => {
+          const name = (item.resolvedName || item.title || item.name || '');
+          printable.innerHTML += `<div class="pdf-item"><span class="pdf-time">${item.time || ''}</span><span class="pdf-name">${name}</span><div class="pdf-desc">${item.desc || ''}</div></div>`;
+        });
+      }
+
+      if (mapDataUrl) {
+        printable.innerHTML += `<div style="margin-top:14px;"><img class="pdf-map" src="${mapDataUrl}" alt="지도 스냅샷" /></div>`;
+      } else {
+        printable.innerHTML += `<div style="margin-top:14px;color:#6b7280;font-size:13px;">지도 스냅샷을 생성할 수 없어 일정 텍스트만 PDF로 저장합니다.</div>`;
+      }
+
+      document.body.appendChild(printable);
+
+      // html2pdf 설정
+      const opt = {
+        margin:       10,
+        filename:     filename,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2, useCORS: true },
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+
+      try {
+        await html2pdf().set(opt).from(printable).save();
+      } catch (e) {
+        console.error('PDF export failed', e);
+        alert('PDF 생성에 실패했습니다. 콘솔을 확인하세요.');
+      } finally {
+        document.body.removeChild(printable);
+      }
     }
 
     // SDK 로드/에러 상태 추적: 실패 시 window.__kakaoLoadError에 Error 객체 저장
@@ -349,7 +421,10 @@
                 <h1 class="text-2xl md:text-3xl font-extrabold tracking-tight text-forest-700">태안 여행 플랜</h1>
                 <p class="text-sm text-stone-500 mt-1">항목은 개별 수정하거나 삭제할 수 있고, 지도도 즉시 다시 그려집니다.</p>
               </div>
-              <button id="back" class="text-sm text-blue-600 font-bold hover:underline bg-blue-50 px-3 py-2 rounded-xl shrink-0">다시 선택</button>
+              <div class="flex gap-2">
+                <button id="exportPdf" class="text-sm bg-white border px-3 py-2 rounded-xl font-semibold hover:bg-stone-50">PDF로 저장</button>
+                <button id="back" class="text-sm text-blue-600 font-bold hover:underline bg-blue-50 px-3 py-2 rounded-xl shrink-0">다시 선택</button>
+              </div>
             </div>
 
             <div class="mb-8">${mapSection}</div>
@@ -385,6 +460,9 @@
       document.querySelectorAll('[data-edit]').forEach(btn => btn.addEventListener('click', () => openEditModal(btn.dataset.edit)));
       document.querySelectorAll('[data-apply]').forEach(btn => btn.addEventListener('click', () => applyEdit(btn.dataset.apply, btn.dataset.type || null)));
       document.getElementById('closeEdit')?.addEventListener('click', () => { state.editingCategory = null; render(); });
+
+      // PDF 버튼 바인딩
+      document.getElementById('exportPdf')?.addEventListener('click', exportToPDF);
     }
 
     async function render() {
