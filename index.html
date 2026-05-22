@@ -5,7 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#2d5a27" />
   <title>여행 세부 일정</title>
-  <script>window.KAKAO_MAP_APP_KEY = window.KAKAO_MAP_APP_KEY || "6ec33b3d1f27658259eccc9a807e1480";</script>
+
+  <!-- favicon 404 방지: 빈 데이터 URI -->
+  <link rel="icon" href="data:;base64,iVBORw0KGgo=">
+
+  <script>
+    // 여기에 Kakao Developers의 "JavaScript 키"를 넣으세요 (REST 키 아님).
+    // 예: window.KAKAO_MAP_APP_KEY = "abcd1234..."; 
+    // 로컬 테스트 시 file:// 로 열지 말고 로컬 서버로 띄우세요 (python -m http.server 등).
+    window.KAKAO_MAP_APP_KEY = window.KAKAO_MAP_APP_KEY || "6ec33b3d1f27658259eccc9a807e1480";
+    console.log('Kakao key:', window.KAKAO_MAP_APP_KEY);
+  </script>
+
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = { theme: { extend: { colors: { forest: { 50:'#f4f7f6', 100:'#e7efe8', 600:'#2d5a27', 700:'#1f411c' } }, boxShadow: { soft:'0 12px 40px rgba(17,24,39,0.08)' } } } };
@@ -18,6 +29,8 @@
     .chip-active { box-shadow: inset 0 0 0 2px rgba(45,90,39,.22); }
     .map-empty { min-height: 350px; }
     @media (min-width: 768px) { .map-empty { min-height: 450px; } }
+    .map-error { border: 1px solid #fee2e2; background: #fff7f7; color:#7f1d1d; padding:16px; border-radius:14px; }
+    .map-error small { display:block; color:#92400e; margin-top:8px; }
   </style>
 </head>
 <body>
@@ -221,6 +234,7 @@
       if (linePath.length > 0) map.setBounds(bounds);
     }
 
+    // SDK 로드/에러 상태 추적: 실패 시 window.__kakaoLoadError에 Error 객체 저장
     async function ensureKakaoMaps() {
       if (!window.KAKAO_MAP_APP_KEY) return false;
       if (window.kakao && window.kakao.maps) return true;
@@ -228,9 +242,30 @@
         window.__kakaoSdkPromise = new Promise((resolve, reject) => {
           const script = document.createElement('script');
           script.async = true;
-          script.src = 'https://dapi.kakao.com/v2/maps/sdk.js?autoload=false&libraries=services&appkey=' + encodeURIComponent(window.KAKAO_MAP_APP_KEY);
-          script.onload = () => { if (!window.kakao || !window.kakao.maps) reject(new Error('Kakao Maps SDK load failed')); else window.kakao.maps.load(() => resolve(window.kakao)); };
-          script.onerror = () => reject(new Error('Kakao Maps SDK load failed'));
+          const sdkUrl = 'https://dapi.kakao.com/v2/maps/sdk.js?autoload=false&libraries=services&appkey=' + encodeURIComponent(window.KAKAO_MAP_APP_KEY);
+          script.src = sdkUrl;
+          script.onload = () => {
+            if (!window.kakao || !window.kakao.maps) {
+              const err = new Error('Kakao Maps SDK load failed: no kakao.maps after script load');
+              window.__kakaoLoadError = err;
+              console.error(err);
+              reject(err);
+            } else {
+              try {
+                window.kakao.maps.load(() => resolve(window.kakao));
+              } catch (e) {
+                window.__kakaoLoadError = e;
+                console.error('kakao.maps.load failed:', e);
+                reject(e);
+              }
+            }
+          };
+          script.onerror = (ev) => {
+            const err = new Error('Kakao Maps SDK load failed (script.onerror). 가능한 원인: 잘못된 키, referer 제한, 네트워크 차단.');
+            window.__kakaoLoadError = err;
+            console.error('Failed loading Kakao SDK script:', sdkUrl, ev, err);
+            reject(err);
+          };
           document.head.appendChild(script);
         });
       }
@@ -240,9 +275,27 @@
     function resultView() {
       const day1Items = state.planItems.filter(i => i.day === 1);
       const day2Items = state.planItems.filter(i => i.day === 2);
-      const mapSection = window.KAKAO_MAP_APP_KEY
-        ? '<div id="map" class="w-full bg-white rounded-3xl shadow-soft border border-stone-200 overflow-hidden map-empty"></div>'
-        : '<div class="w-full bg-white rounded-3xl shadow-soft border border-stone-200 overflow-hidden map-empty flex flex-col items-center justify-center text-stone-500 px-6 text-center"><div class="text-3xl mb-3">📍</div><p class="font-semibold">window.KAKAO_MAP_APP_KEY를 설정하면 카카오맵이 표시됩니다.</p><p class="text-sm mt-2">GitHub Pages 배포 전에 JavaScript 키로 바꿔주세요.</p></div>';
+
+      // SDK 로드 실패 시 사용자에게 안내 표시
+      const mapSection = window.__kakaoLoadError
+        ? `<div class="w-full bg-white rounded-3xl shadow-soft border border-stone-200 overflow-hidden map-empty p-6 flex items-center">
+             <div class="w-full">
+               <div class="map-error">
+                 <strong>카카오맵 로드에 실패했습니다.</strong>
+                 <div style="margin-top:8px">가능한 원인:</div>
+                 <ul style="margin:8px 0 0 18px">
+                   <li>키 타입이 JavaScript 키가 아닙니다 (REST 키 아님).</li>
+                   <li>키에 등록된 사이트 도메인(리퍼러)이 현재 페이지와 일치하지 않습니다.</li>
+                   <li>file://로 페이지를 열었습니다 — 로컬 서버(http://localhost:포트)로 열어보세요.</li>
+                   <li>네트워크 또는 브라우저 확장(블로커)이 요청을 차단했습니다.</li>
+                 </ul>
+                 <small>콘솔을 확인해 오류 메시지를 확인하세요. (window.__kakaoLoadError)</small>
+               </div>
+             </div>
+           </div>`
+        : (window.KAKAO_MAP_APP_KEY
+            ? '<div id="map" class="w-full bg-white rounded-3xl shadow-soft border border-stone-200 overflow-hidden map-empty"></div>'
+            : '<div class="w-full bg-white rounded-3xl shadow-soft border border-stone-200 overflow-hidden map-empty flex flex-col items-center justify-center text-stone-500 px-6 text-center"><div class="text-3xl mb-3">📍</div><p class="font-semibold">window.KAKAO_MAP_APP_KEY를 설정하면 카카오맵이 표시됩니다.</p><p class="text-sm mt-2">GitHub Pages 배포 전에 JavaScript 키로 바꿔주세요.</p></div>');
 
       return `
         <div class="min-h-screen px-4 py-8 md:py-10 text-stone-800">
